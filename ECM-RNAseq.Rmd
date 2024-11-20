@@ -1,0 +1,218 @@
+---
+title: "ECM CellChat"
+author: "Thea Zlatkov"
+date: "2024-06-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library (CellChat)
+library (NMF)
+library (ggalluvial)
+```
+
+```{r}
+# I am beginning with uninjured datasets
+
+library (CellChat)
+library (future)
+library (Seurat)
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/DBs/CellChat/CellChatDB.mouse.rda")
+CellChatDB <-CellChatDB.mouse 
+
+# load in seurat object 
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/WT_Seurat.RData")
+
+
+# declare seurat object of interest
+seurat_oi <- WT_seurat
+
+genex_oi <- GetAssayData(seurat_oi, assay = "RNA")
+data.input_oi <- normalizeData(genex_oi, scale.factor = 10000, do.log = TRUE)
+meta <- as.data.frame (seurat_oi@meta.data)
+cellchat_oi <- createCellChat(object = data.input_oi, meta = meta, group.by = "celltype.seurat")
+CellChatDB.use <- CellChatDB 
+cellchat_oi@DB <- CellChatDB.use
+cellchat_oi <- subsetData(cellchat_oi)
+future::plan("multisession", workers = 4)
+cellchat_oi <- identifyOverExpressedGenes (cellchat_oi)
+cellchat_oi <- identifyOverExpressedInteractions(cellchat_oi)
+
+unique_levels <- unique(cellchat_oi@idents)
+unused_levels <- setdiff(levels(cellchat_oi@idents), unique_levels)
+if (length(unused_levels) > 0) {
+ cellchat_oi@idents <- droplevels(cellchat_oi@idents, exclude = unused_levels)
+}
+
+cellchat_oi <- computeCommunProb(cellchat_oi, type = "truncatedMean", trim = 0.1)
+cellchat_oi <- filterCommunication(cellchat_oi, min.cells = 10)
+cellchat_oi <- computeCommunProbPathway(cellchat_oi)
+
+# rename seurat object, set data frame
+cellchat_WT_10 <- cellchat_oi
+df.net_CA_10 <- subsetCommunication (cellchat_WT_10)
+
+```
+
+
+```{r}
+
+# declare cell chat object for analysis 
+cellchat_ana <- cellchat_WT
+
+
+# OVERALL INTERACTIONS 
+cellchat_ana <- aggregateNet(cellchat_ana)
+groupSize <- as.numeric(table(cellchat_ana@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+interactions_ana <- netVisual_circle(cellchat_ana@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Young Uninjured Interactions")
+interaction_weight_ana <- netVisual_circle(cellchat_ana@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+
+mat <- cellchat_ana@net$weight
+par(mfrow = c(3,4), xpd=TRUE)
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  cell_interaction_ana <- netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+
+
+pathways.show <- c("FN1")
+netVisual_aggregate(cellchat_ana, signaling = pathways.show,  vertex.receiver = vertex.receiver)
+
+pathways.show = ("FN1")
+netVisual_chord_gene(cellchat_WT_10, signaling = pathways.show, targets.use = c("MuSCs_WT"))
+
+
+cellchat_ana <- netAnalysis_computeCentrality(cellchat_ana, slot.name = "netP") # the slot 'netP' means the inferred intercellular communication network of signaling pathways
+# Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+netAnalysis_signalingRole_network(cellchat_ana, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+options(future.rng.onMisuse = "ignore")
+
+
+
+library(NMF)
+library(ggalluvial)
+
+selectK(cellchat_ana, pattern = "outgoing")
+nPatterns = 4
+cellchat_ana <- identifyCommunicationPatterns(cellchat_ana, pattern = "outgoing", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_ana, pattern = "outgoing")
+# dot plot
+netAnalysis_dot(cellchat_ana, pattern = "outgoing")
+
+selectK(cellchat_ana, pattern = "incoming")
+nPatterns = 4
+cellchat_ana <- identifyCommunicationPatterns(cellchat_ana, pattern = "incoming", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_ana, pattern = "incoming")
+# dot plot
+netAnalysis_dot(cellchat_ana, pattern = "incoming")
+
+cellchat_WT <- cellchat_ana
+
+```
+
+```{r}
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/WT_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/caFGF_seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/caFGF_seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Young_4dpi_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Young_7dpi_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Aged_4dpi_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Aged_7dpi_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Young_Uninjured_Seurat.RData")
+
+VlnPlot(WT_seurat, features = "Fgfr1", idents = "MuSCs_WT", y.max = 5)
+VlnPlot(caFGF_seurat, features = "Fgfr1", idents = "MuSCs_caFGF", y.max = 5)
+VlnPlot(Young_Uninjured, features = "Fgfr1", idents = "MuSCs", y.max = 5)
+VlnPlot(Young_4dpi, features = "Cd44", idents = "MuSCs", y.max = 5)
+VlnPlot(Aged_4dpi, features = "Cd44", idents = "MuSCs", y.max = 5)
+
+VlnPlot(Young_4dpi, features = c("Fgfr1", "Fgfr4", "Fgf1", "Fgf2", "Fgf7"), y.max = 5)
+
+VlnPlot(Young_7dpi, features = c("Fgfr1", "Fgfr4", "Fgf1", "Fgf2", "Fgf7"), y.max = 5)
+
+VlnPlot(Aged_4dpi, features = c("Fgfr1", "Fgfr4", "Fgf1", "Fgf2", "Fgf7"), y.max = 5)
+VlnPlot(Aged_7dpi, features = c("Fgfr1", "Fgfr4", "Fgf1", "Fgf2", "Fgf7"), y.max = 5)
+
+```
+
+
+
+```{r}
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/celltype_seuratobj_thea.RData")
+
+umap.seurat.full$celltype.stim <- paste(umap.seurat.full$celltype.seurat, umap.seurat.full$cell.id, sep = "_")
+Idents(umap.seurat.full) <- "celltype.stim"
+mono.de <- FindMarkers(umap.seurat.full, ident.1 = "MuSCs_Y4", ident.2 = "MuSCs_A4", verbose = FALSE)
+head(mono.de, n = 20)
+
+```
+
+
+
+
+```{r}
+VlnPlot (Young_Uninjured, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (WT_seurat, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (Young_4dpi, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (Young_7dpi, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (Aged_4dpi, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (Aged_7dpi, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+VlnPlot (caFGF_seurat, features = c("Fn1", "Itgb1", "Itga7", "Cd44", "Sdc4"))
+
+# FN1
+VlnPlot (Young_Uninjured, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = "MuSCs")
+VlnPlot (WT_seurat, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = c("MuSCs_WT", "MuSCs_caFGF"))
+VlnPlot (Young_4dpi, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot (Young_7dpi, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot (Aged_4dpi, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot (Aged_7dpi, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot (caFGF_seurat, features = c("Hspg2", "Cd44", "Gpc1"), y.max = 6, c("MuSCs_WT", "MuSCs_caFGF"))
+
+
+
+
+VlnPlot(Young_Uninjured, features = "Itgb1", y.max = 6, idents = "MuSCs")
+VlnPlot(WT_seurat, features = "Itgb1", y.max = 6, idents = "MuSCs")
+VlnPlot(caFGF_seurat, features = "Camk2a", y.max = 6, idents = "MuSCs_caFGF")
+
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/cellchat_WT.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/cellchat_CA.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/cellchat_Y0.RData")
+
+pathways.show <- c("COLLAGEN")
+netVisual_aggregate(cellchat_CA, signaling = pathways.show,  vertex.receiver = vertex.receiver)
+netVisual_chord_gene(cellchat_CA, signaling = pathways.show, targets.use = "MuSCs_caFGF")
+
+
+cellchat_Y0 <- computeCommunProbPathway(cellchat_Y0)
+cellchat_Y0 <- netAnalysis_computeCentrality(cellchat_Y0, slot.name = "netP") # the slot 'netP' means the inferred intercellular communication network of signaling pathways
+# Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+netAnalysis_signalingRole_network(cellchat_Y0, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+options(future.rng.onMisuse = "ignore")
+
+
+
+VlnPlot(Young_7dpi, features = "Ryr1", y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot(Young_7dpi, features = "Camk2a", y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot(Young_7dpi, features = "Ryr3", y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot(Aged_7dpi, features = "Ryr1", y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot(Aged_7dpi, features = "Camk2a", y.max = 6, idents = c("MuSCs", "Progenitors"))
+VlnPlot(Aged_7dpi, features = "Ryr3", y.max = 6, idents = c("MuSCs", "Progenitors"))
+
+```
+
+```{r}
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Aged_7_sdc4.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+VlnPlot(Aged_7dpi, features = "Sdc4", idents = "MuSCs", y.max = 6) + theme(axis.text.x = element_text(size = 20), axis.text.y = element_text(size = 20), axis.title = element_text(size=20))
+dev.off()
+```
+

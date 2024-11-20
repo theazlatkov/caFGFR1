@@ -1,0 +1,298 @@
+---
+title: "Virtual Transplant & Cell Chat"
+author: "Thea Zlatkov"
+date: "2024-07-24"
+output: html_document
+---
+```{r}
+# START HERE FOR SEURAT
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library (Seurat)
+library (ggplot2)
+library (glmGamPoi)
+```
+
+```{r}
+# I am trying to merge different FAPs populations with caFGFR data
+# I need to add something to identify origin of FAPs during my merge 
+```
+
+
+
+
+
+```{r}
+# START HERE FOR SEURAT
+```
+
+
+```{r}
+# SEURAT OBJECTS
+
+
+# loading in my data
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/caFGF_Seurat.RData")
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Young_Uninjured_Seurat.RData")
+
+# subsetting FAPs, adding identification, merging 
+MuSCs_caFGF <- subset(caFGF_seurat, idents = "MuSCs_caFGF")
+levels(MuSCs_caFGF@meta.data$celltype.seurat) <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "MuSCs_WT", "MuSCs_caFGF", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+merged <- merge(x=MuSCs_caFGF, y=Young_Uninjured)
+
+
+# analysis without integration 
+merged <- NormalizeData(merged)
+merged <- FindVariableFeatures(merged)
+merged <- ScaleData(merged)
+merged <- RunPCA(merged)
+
+
+# clustering and plotting without integration 
+merged <- FindNeighbors(merged, dims = c(1:35), reduction = "pca")
+merged <- FindClusters(merged, resolution = 0.5, cluster.name = "unintegrated_clusters")
+
+
+merged <- RunUMAP(merged, dims = c(1:35), reduction = "pca", reduction.name = "umap.unintegrated", n.neighbors = 50)
+DimPlot(merged, reduction = "umap.unintegrated", group.by = c("condition.id", "celltype.seurat"))
+```
+
+```{r}
+# INTEGRATING SEURAT 
+
+
+# splitting layers, Integration, Joining layers
+merged[["RNA"]] <- split(merged[["RNA"]], f = merged$condition.id)
+
+
+merged <- IntegrateLayers(object = merged, method = RPCAIntegration, orig.reduction = "pca", new.reduction = "integrated.rpca", verbose = TRUE, k.weight = 63)
+merged[["RNA"]] <- JoinLayers(merged[["RNA"]])
+
+
+# Clustering & Plotting with Integration
+merged <- FindNeighbors(merged, reduction = "integrated.rpca", dims = 1:35)
+merged <- RunUMAP(merged, dims = 1:35, reduction = "integrated.rpca", n.neighbors = 70L, n.components = 4L)
+merged <- FindClusters(merged, resolution = 0.2, cluster.name = "rpca_clusters")
+DimPlot(merged, reduction = "umap", group.by = c("condition.id", "celltype.seurat"))
+```
+
+
+
+
+
+
+
+```{r}
+# START HERE FOR CELL CHAT
+```
+
+```{r}
+# CELL CHATTING
+
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Young_Uninjured_Seurat.RData")
+library (CellChat)
+library (future)
+```
+
+
+```{r}
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/DBs/CellChat/CellChatDB.mouse.rda")
+CellChatDB <-CellChatDB.mouse 
+
+
+# SEURAT OBJECT HERE
+seurat_oi <- merged
+
+# Cell chat workflow
+genex_oi <- GetAssayData(seurat_oi, assay = "RNA")
+data.input_oi <- normalizeData(genex_oi, scale.factor = 10000, do.log = TRUE)
+meta <- as.data.frame (seurat_oi@meta.data)
+cellchat_oi <- createCellChat(object = data.input_oi, meta = meta, group.by = "celltype.seurat")
+CellChatDB.use <- CellChatDB 
+cellchat_oi@DB <- CellChatDB.use
+cellchat_oi <- subsetData(cellchat_oi)
+future::plan("multisession", workers = 4)
+
+cellchat_oi <- identifyOverExpressedGenes (cellchat_oi)
+cellchat_oi <- identifyOverExpressedInteractions(cellchat_oi)
+# fill in mean as appropriate
+
+# no progenitors in the uninjured datasets, excluding them from analysis
+unique_levels <- unique(cellchat_oi@idents)
+unused_levels <- setdiff(levels(cellchat_oi@idents), unique_levels)
+if (length(unused_levels) > 0) {
+ cellchat_oi@idents <- droplevels(cellchat_oi@idents, exclude = unused_levels)
+}
+
+cellchat_oi <- computeCommunProb(cellchat_oi, type = "truncatedMean", trim = 0.20)
+cellchat_oi <- filterCommunication(cellchat_oi, min.cells = 1)
+cellchat_oi <- computeCommunProbPathway(cellchat_oi)
+
+# RENAME TO CURRENT OBJECT
+cellchat_Y0_CAF_20 <- cellchat_oi
+df.net_Y0_CAF_20 <- subsetCommunication(cellchat_Y0_CAF_20)
+```
+
+```{r}
+# CellChat Analysis
+```
+
+```{r}
+# Load in Cell Chat Object of interest
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/CCC_Objects/cellchat_Y0F_CA_20.RData")
+
+cellchat_ana <- cellchat_Y0_CAF_20
+
+```
+
+
+```{r}
+# GENERAL PLOTTING
+
+cellchat_ana <- aggregateNet(cellchat_ana)
+groupSize <- as.numeric(table(cellchat_ana@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/Interactions.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+interactions_ana <- netVisual_circle(cellchat_ana@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+dev.off()
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/Interaction_weights.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+interaction_weight_ana <- netVisual_circle(cellchat_ana@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+dev.off()
+
+mat <- cellchat_ana@net$weight
+par(mfrow = c(3,4), xpd=TRUE)
+for (i in 1:nrow(mat)) {
+  filename <- sprintf('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/EachGroup_%03d.jpeg', i)
+  jpeg(filename, width = 2000, height = 2000, quality = 100, res = 300)
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  cell_interaction_ana <- netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+  dev.off()
+}
+```
+
+
+```{r}
+# OUTGOING PATTERNS
+
+# for some reason it seems like i need to run this first
+cellchat_ana <- netAnalysis_computeCentrality(cellchat_ana, slot.name = "netP")  
+
+library(NMF)
+library(ggalluvial)
+selectK(cellchat_ana, pattern = "outgoing")
+nPatterns = 4
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/OutgoingPatterns.jpeg', width = 2300, height = 2000, quality = 100, res = 300)
+cellchat_ana <- identifyCommunicationPatterns(cellchat_ana, pattern = "outgoing", k = nPatterns)
+dev.off()
+# river plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/OutgoingPatterns_River.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_river(cellchat_ana, pattern = "outgoing")
+dev.off()
+# dot plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/OutgoingPatterns_Dot.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_dot(cellchat_ana, pattern = "outgoing")
+dev.off()
+
+# incoming patterns
+selectK(cellchat_ana, pattern = "incoming")
+nPatterns = 4
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/IncomingPatterns.jpeg', width = 2300, height = 2000, quality = 100, res = 300)
+cellchat_ana <- identifyCommunicationPatterns(cellchat_ana, pattern = "incoming", k = nPatterns)
+dev.off()
+# river plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/IncomingPatterns_River.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_river(cellchat_ana, pattern = "incoming")
+dev.off()
+# dot plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/IncomingPatterns_Dot.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_dot(cellchat_ana, pattern = "incoming")
+dev.off()
+```
+
+
+```{r}
+# FAPs ONLY PATTERNS
+
+# dot plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/OutgoingPatterns_FAPs_Dot.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_dot(cellchat_ana, pattern = "outgoing", group.show = c("MuSCs", "MuSCs_caFGF"))
+dev.off()
+
+
+# dot plot
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/IncomingPatterns_FAPs_Dot.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_dot(cellchat_ana, pattern = "incoming", group.show = c("MuSCs", "MuSCs_caFGF"))
+dev.off()
+```
+
+
+
+```{r}
+# CHORD PLOTS
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/FAP_SC.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netVisual_chord_gene(cellchat_ana, sources.use = ("FAPs"), targets.use = c("MuSCs","caFGF_MuSCs"))
+dev.off()
+
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/Young_FAP_SC.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netVisual_chord_gene(cellchat_ana, sources.use = ("Young_FAPs"), targets.use = c("MuSCs_WT","MuSCs_caFGF"))
+dev.off()
+```
+
+
+
+
+```{r}
+# SIMILARITY UMAPs
+
+#identify signaling groups based on similarity 
+cellchat_ana <- computeNetSimilarity(cellchat_ana, type = "functional")
+cellchat_ana <- netEmbedding(cellchat_ana, type = "functional")
+cellchat_ana <- netClustering(cellchat_ana, type = "functional", do.parallel = FALSE)
+# Visualization in 2D-space
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/Functional_Similarity.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netVisual_embedding(cellchat_ana, type = "functional", label.size = 3.5)
+dev.off()
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/Functional_Similarity_Separate.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netVisual_embeddingZoomIn(cellchat_ana, type = "functional", nCol = 2)
+dev.off()
+
+```
+
+
+```{r}
+# REPLACE THE X 
+cellchat_Y0F_CA_20 <- cellchat_ana
+
+```
+
+```{r}
+# NOT CURRENTLY RUNNING THIS CHUNK
+
+# CIRCLE PLOTS OF SPECIFIC PATHWAYS - NOT SURE WHAT GENES THIS WILL BE IMPORTANT FOR
+pathways.show <- c("LAMININ")
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/LAMININcontribution.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_contribution(cellchat_ana, signaling = pathways.show)
+dev.off()
+
+pairLR.FGF <- extractEnrichedLR(cellchat_ana, signaling = pathways.show, geneLR.return = FALSE)
+LR.show <- pairLR.FGF[5,] # show one ligand-receptor pair
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant/5_LAMININcontribution.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netVisual_individual(cellchat_ana, signaling = pathways.show, pairLR.use = LR.show, layout = "circle")
+dev.off()
+
+
+# COMPUTING CENTRALITY
+pathways.show <- ("FGF")
+cellchat_ana <- netAnalysis_computeCentrality(cellchat_ana, slot.name = "netP") 
+jpeg('/Users/theazlatkov/Documents/Olwin_Lab/Computational/Virtual_Transplant.jpeg', width = 2000, height = 2000, quality = 100, res = 300)
+netAnalysis_signalingRole_network(cellchat_ana, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+dev.off()
+options(future.rng.onMisuse = "ignore")
+```
+

@@ -1,0 +1,117 @@
+---
+title: "20240226_FGF_cellchat"
+author: "Tenaya K Vallery PhD"
+date: "2024-02-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Seurat)
+
+```
+
+```{r}
+##Adjust below for where you have downloaded and stored the RData file I sent you. 
+load("~/Documents/FGF/fgf_seq_umap.RData")
+
+DimPlot(fgf.seq.umap, pt.size = 1, label = T, group.by = 'seurat_clusters')
+
+fgf.seq.umap.renamed <- fgf.seq.umap
+
+new.cluster.ids <- c("Myonuclei", #0
+
+                     "Myonuclei", #1
+
+                     "Myonuclei", #2
+
+                     "Myonuclei", #3
+
+                     "Endothelial", #4
+
+                     "Schwann",#5
+
+                     "Myonuclei",#6
+
+                     "Myonuclei", #7
+
+                     "Myonuclei", #8
+
+                     "SmoothMuscle", #9
+
+                     "MuSCs_WT", #10
+
+                     "MuSCs_caFGF", #11
+
+                     "FAPs", #12
+
+                     "SmoothMuscle", #13
+
+                     "SmoothMuscle", #14
+
+                     "Endothelial", #15 ## probably not
+
+                     "Immune", #16
+
+                     "Immune", #17
+
+                     "MyoFAPS?", #18
+
+                     "Myonuclei", #19
+
+                     "Unidentified_1", #20
+
+                     "Myonuclei", #21 # probably not
+
+                     "Myonuclei", #22
+
+                     "Immune", #23
+
+                     "Endothelial") #24
+ 
+fgf.seq.umap.renamed <- SetIdent(fgf.seq.umap.renamed, value = 'seurat_clusters')
+
+names(new.cluster.ids) <- levels(fgf.seq.umap.renamed)
+
+fgf.seq.umap.renamed <- RenameIdents(fgf.seq.umap.renamed, new.cluster.ids)
+
+fgf.seq.umap.renamed$celltype.seurat <- Idents(fgf.seq.umap.renamed)
+ 
+cols <- rainbow(length(unique(new.cluster.ids)))
+
+cols[1] <- 'gray'
+
+#cols[5] <- 'blue'
+
+cols[5] <- '#8CD3FF'
+
+#cols[6] <- 'red'
+
+cols[6] <- "#FF5C5C"
+
+cols[7] <- 'darkgreen'
+
+cols[8] <- 'black'
+
+cols[9] <- 'goldenrod4'
+
+#cols[10] <- 'dodgerblue4'
+
+# cols[grep("MuSCs_caFGF", new.cluster.ids)] <- 'red'
+
+# cols[grep("MuSCs_WT", new.cluster.ids)] <- 'blue'
+
+DimPlot(fgf.seq.umap.renamed, pt.size = 1) + scale_color_manual(values = cols)
+
+#condition = genotype
+DimPlot(object = fgf.seq.umap.renamed, pt.size = 0.5, split.by = 'condition') + scale_color_manual(values = cols)
+
+#Basic Questions
+#How many FAPs are in each genotype? 
+#How many SCs are in each genotype and in the two different gropus 
+#How many endothelial cells are there for each genotype? 
+#How many myonuclei are there in each genotype? 
+#See if you can save the two dimplots
+
+```
+
