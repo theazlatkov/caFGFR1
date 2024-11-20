@@ -1,0 +1,433 @@
+---
+title: "CellChat Comparison"
+author: "Thea Zlatkov"
+date: "2024-04-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library (Seurat)
+library (ggplot2)
+
+# In this chunk, I am loading in my Seurat objects, so that I can analyze on CellChat 
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/fgf_seq_umap.RData")
+DimPlot(fgf.seq.umap, pt.size = 1, label = T, group.by = 'seurat_clusters')
+
+fgf.seq.umap.renamed <- fgf.seq.umap
+
+new.cluster.ids <- c("Myonuclei", #0
+
+                     "Myonuclei", #1
+
+                     "Myonuclei", #2
+
+                     "Myonuclei", #3
+
+                     "Endothelial", #4
+
+                     "Schwann",#5
+
+                     "Myonuclei",#6
+
+                     "Myonuclei", #7
+
+                     "Myonuclei", #8
+
+                     "SmoothMuscle", #9
+
+                     "MuSCs_WT", #10
+
+                     "MuSCs_caFGF", #11
+
+                     "FAPs", #12
+
+                     "SmoothMuscle", #13
+
+                     "SmoothMuscle", #14
+
+                     "Endothelial", #15 ## probably not
+
+                     "Immune", #16
+
+                     "Immune", #17
+
+                     "MyoFAPS?", #18
+
+                     "Myonuclei", #19
+
+                     "Unidentified_1", #20
+
+                     "Myonuclei", #21 # probably not
+
+                     "Myonuclei", #22
+
+                     "Immune", #23
+
+                     "Endothelial") #24
+ 
+fgf.seq.umap.renamed <- SetIdent(fgf.seq.umap.renamed, value = 'seurat_clusters')
+
+names(new.cluster.ids) <- levels(fgf.seq.umap.renamed)
+
+fgf.seq.umap.renamed <- RenameIdents(fgf.seq.umap.renamed, new.cluster.ids)
+
+fgf.seq.umap.renamed$celltype.seurat <- Idents(fgf.seq.umap.renamed)
+ 
+cols <- rainbow(length(unique(new.cluster.ids)))
+
+cols[1] <- 'gray'
+
+#cols[5] <- 'blue'
+
+cols[5] <- '#8CD3FF'
+
+#cols[6] <- 'red'
+
+cols[6] <- "#FF5C5C"
+
+cols[7] <- 'darkgreen'
+
+cols[8] <- 'black'
+
+cols[9] <- 'goldenrod4'
+
+#cols[10] <- 'dodgerblue4'
+
+# cols[grep("MuSCs_caFGF", new.cluster.ids)] <- 'red'
+
+# cols[grep("MuSCs_WT", new.cluster.ids)] <- 'blue'
+
+DimPlot(fgf.seq.umap.renamed, pt.size = 1) + scale_color_manual(values = cols)
+
+#Generating two seurat objects, split by condition 
+split.by.condition <- SplitObject (fgf.seq.umap.renamed, split.by = "condition")
+caFGF_seurat <- split.by.condition [[1]]
+WT_seurat <- split.by.condition [[2]]
+
+# displaying each condition as a separate plot with respetive tital and previously set colors
+caFGFplot <- DimPlot(caFGF_seurat, dims = 1:2) + ggtitle ("caFGF") + scale_color_manual(values = cols)
+WTplot <- DimPlot(WT_seurat, dims = 1:2) + ggtitle ("WT") + scale_color_manual(values = cols)
+
+# just seeing if the myonucli population can be sub-clustered 
+FeaturePlot (fgf.seq.umap.renamed, features = "Col22a1", split.by = "condition")
+
+
+```
+
+```{r}
+# In this chunk, I'm going to make a WT cellchat object 
+
+library (CellChat)
+library (future)
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/DBs/CellChat/CellChatDB.mouse.rda")
+CellChatDB <-CellChatDB.mouse 
+
+genex_WT <- GetAssayData(WT_seurat, assay = "RNA")
+data.input_WT <- normalizeData(genex_WT, scale.factor = 10000, do.log = TRUE)
+meta <- as.data.frame (WT_seurat@meta.data)
+cellchat_WT <- createCellChat(object = data.input_WT, meta = meta, group.by = "celltype.seurat")
+CellChatDB.use <- CellChatDB 
+cellchat_WT@DB <- CellChatDB.use
+cellchat_WT <- subsetData(cellchat_WT)
+future::plan("multisession", workers = 4)
+cellchat_WT <- identifyOverExpressedGenes (cellchat_WT)
+cellchat_WT <- identifyOverExpressedInteractions(cellchat_WT)
+cellchat_WT <- computeCommunProb(cellchat_WT)
+cellchat_WT <- filterCommunication(cellchat_WT, min.cells = 10)
+cellchat_WT <- computeCommunProbPathway(cellchat_WT)
+
+```
+
+```{r}
+# In this chunk, I'm going to load my CAFGF cellchat object 
+
+load ("/Users/theazlatkov/Documents/Olwin_Lab/Computational/cellchat_CA.RData")
+cellchat_CA <- computeCommunProbPathway(cellchat_CA)
+
+
+
+# in this chunk, I'm going to save all my objects as RData files 
+
+directory_path <- ("/Users/theazlatkov/Documents/Olwin_Lab/Computational")
+save (cellchat_WT, file = paste0(directory_path, "cellchat_WT.RData"))
+save (cellchat_CA, file = paste0(directory_path, "cellchat_CA.RData"))
+```
+
+
+```{r}
+# in this chunk, i'm going to start visualizing my WT data!
+
+load("/Users/theazlatkov/Documents/Olwin_Lab/Computational/cellchat_WT.RData")
+
+
+# changing cluster names 
+levels(cellchat_WT@idents) 
+levels(cellchat_WT@idents) <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "MuSCs_WT", "FGF_MuSCs", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+
+new_labels <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "MuSCs_WT", "FGF_MuSCs", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+# Update object names
+rownames(cellchat_WT@net$count) <- new_labels
+colnames(cellchat_WT@net$count) <- new_labels
+
+# extracting inferred cellular comm. network as df, you can aso separate by cellgroup or signaling genes
+df.net_WT <- subsetCommunication(cellchat_WT)
+
+# aggregated summary of comm probability 
+cellchat_WT <- aggregateNet(cellchat_WT)
+groupSize <- as.numeric(table(cellchat_WT@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+interactions_WT <- netVisual_circle(cellchat_WT@net$count, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Number of interactions")
+interaction_weight_WT <- netVisual_circle(cellchat_WT@net$weight, vertex.weight = groupSize, weight.scale = TRUE, label.edge = FALSE, title.name = "Interaction weights/strength")
+
+# looking at signaling from each cell group
+mat <- cellchat_WT@net$weight
+par(mfrow = c(3,4), xpd=TRUE)
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  cell_interaction_WT <- netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+
+# FGF signaling
+pathways.show <- c("FGF")
+netVisual_aggregate(cellchat_WT, signaling = pathways.show,  vertex.receiver = vertex.receiver)
+netVisual_chord_gene(cellchat_WT, signaling = "FGF")
+
+netAnalysis_contribution(cellchat_WT, signaling = pathways.show)
+pairLR.FGF <- extractEnrichedLR(cellchat_WT, signaling = pathways.show, geneLR.return = FALSE)
+LR.show <- pairLR.FGF[1,] # show one ligand-receptor pair
+# Hierarchy plot
+vertex.receiver = seq(1,4) # a numeric vector
+netVisual_individual(cellchat_WT, signaling = pathways.show,  pairLR.use = LR.show, vertex.receiver = vertex.receiver)
+# Circle plot
+netVisual_individual(cellchat_WT, signaling = pathways.show, pairLR.use = LR.show, layout = "circle")
+
+plotGeneExpression(cellchat, signaling = "WNT")
+
+
+```
+
+
+```{r}
+# in this chunk, I'm going to try out some higher level analysis 
+
+# Compute the network centrality scores
+cellchat_WT <- netAnalysis_computeCentrality(cellchat_WT, slot.name = "netP") # the slot 'netP' means the inferred intercellular communication network of signaling pathways
+# Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+netAnalysis_signalingRole_network(cellchat_WT, signaling = pathways.show, width = 8, height = 2.5, font.size = 10)
+options(future.rng.onMisuse = "ignore")
+#identify signaling groups based on similarity 
+cellchat_WT <- computeNetSimilarity(cellchat_WT, type = "functional")
+cellchat_WT <- netEmbedding(cellchat_WT, type = "functional")
+cellchat_WT <- netClustering(cellchat_WT, type = "functional", do.parallel = FALSE)
+# Visualization in 2D-space
+netVisual_embedding(cellchat_WT, type = "functional", label.size = 3.5)
+netVisual_embeddingZoomIn(cellchat_WT, type = "functional", nCol = 2)
+# netVisual_embeddingZoomIn(cellchat, type = "functional", nCol = 2)
+
+
+#grouping together by structural similarity - I can also do 'functional'
+cellchat_WT <- computeNetSimilarity(cellchat_WT, type = "functional")
+cellchat_WT <- netEmbedding(cellchat_WT, type = "functional")
+cellchat_WT <- netClustering(cellchat_WT, type = "functional", do.parallel = FALSE)
+# Visualization in 2D-space
+netVisual_embedding(cellchat_WT, type = "functional", label.size = 3.5)
+netVisual_embeddingZoomIn(cellchat_WT, type = "functional", nCol = 2)
+
+
+
+
+# pattern identification 
+library(NMF)
+library(ggalluvial)
+
+selectK(cellchat_WT, pattern = "outgoing")
+nPatterns = 4
+cellchat_WT <- identifyCommunicationPatterns(cellchat_WT, pattern = "outgoing", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_WT, pattern = "outgoing")
+# dot plot
+netAnalysis_dot(cellchat_WT, pattern = "outgoing")
+
+
+selectK(cellchat_WT, pattern = "incoming")
+nPatterns = 4
+cellchat_WT <- identifyCommunicationPatterns(cellchat_WT, pattern = "incoming", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_WT, pattern = "incoming")
+# dot plot
+netAnalysis_dot(cellchat_WT, pattern = "incoming")
+
+
+```
+
+```{r}
+# in this chunk, I'm going to analyze & visualize my caFGF cellchat object 
+
+# populating my netP slot of cellchat object
+cellchat_CA <- computeCommunProbPathway (cellchat_CA)
+df.net_CA <- subsetCommunication(cellchat_CA)
+
+#changing names
+levels(cellchat_CA@idents) 
+levels(cellchat_CA@idents) <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "Non_Rec_MuSCs", "MuSCs_caFGF", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+
+new_labels <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "Non_Rec_MuSCs", "MuSCs_caFGF", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+# Update object names
+rownames(cellchat_CA@net$count) <- new_labels
+colnames(cellchat_CA@net$count) <- new_labels
+```
+
+
+```{r}
+# extracting inferred cellular comm. network as df, you can aso separate by cellgroup or signaling genes
+df.net_CA <- subsetCommunication(cellchat_CA)
+
+# aggregated summary of comm probability 
+cellchat_CA <- aggregateNet(cellchat_CA)
+groupSize <- as.numeric(table(cellchat_CA@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+interactions_CA <- netVisual_circle(cellchat_CA@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+interaction_weight_CA<- netVisual_circle(cellchat_CA@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+
+# looking at signaling from each cell group
+mat <- cellchat_CA@net$weight
+par(mfrow = c(3,4), xpd=TRUE)
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  cell_interaction_CA <- netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+
+# FGF signaling - NO SIGNIFICANT FGF COMMUNICATION IN THIS DATASET
+# pathways.show <- c("FGF")
+# netVisual_aggregate(cellchat_CA, signaling = pathways.show, thresh = 1, vertex.receiver = vertex.receiver)
+# netVisual_chord_gene(cellchat_CA, signaling = "FGF")
+
+# netAnalysis_contribution(cellchat_CA, signaling = pathways.show)
+# pairLR.FGF <- extractEnrichedLR(cellchat_CA, signaling = pathways.show, geneLR.return = FALSE)
+# LR.show <- pairLR.FGF[1,] # show one ligand-receptor pair
+# Hierarchy plot
+# vertex.receiver = seq(1,4) # a numeric vector
+# netVisual_individual(cellchat_CA, signaling = pathways.show,  pairLR.use = LR.show, vertex.receiver = vertex.receiver)
+# Circle plot
+# netVisual_individual(cellchat_CA, signaling = pathways.show, pairLR.use = LR.show, layout = "circle")
+
+
+# no FGF so I will checkout WNT signaling NO WNT EITHER!!???
+# pathways.show <- c("WNT")
+# netVisual_aggregate(cellchat_CA, signaling = pathways.show, thresh = 1, vertex.receiver = vertex.receiver)
+# netVisual_chord_gene(cellchat_CA, signaling = "WNT")
+
+# netAnalysis_contribution(cellchat_CA, signaling = pathways.show)
+# pairLR.WNT <- extractEnrichedLR(cellchat_CA, signaling = pathways.show, geneLR.return = FALSE)
+# LR.show <- pairLR.WNT[1,] # show one ligand-receptor pair
+# Hierarchy plot
+# vertex.receiver = seq(1,4) # a numeric vector
+# netVisual_individual(cellchat_CA, signaling = pathways.show,  pairLR.use = LR.show, vertex.receiver = vertex.receiver)
+# Circle plot
+# netVisual_individual(cellchat_CA, signaling = pathways.show, pairLR.use = LR.show, layout = "circle")
+
+pathways.show <- c("LAMININ")
+netVisual_aggregate(cellchat_CA, signaling = pathways.show, thresh = 1, vertex.receiver = vertex.receiver)
+netVisual_chord_gene(cellchat_CA, signaling = "LAMININ")
+netAnalysis_contribution(cellchat_CA, signaling = pathways.show)
+pairLR.WNT <- extractEnrichedLR(cellchat_CA, signaling = pathways.show, geneLR.return = FALSE)
+LR.show <- pairLR.WNT[1,] # show one ligand-receptor pair
+# Hierarchy plot
+vertex.receiver = seq(1,4) # a numeric vector
+netVisual_individual(cellchat_CA, signaling = pathways.show,  pairLR.use = LR.show, vertex.receiver = vertex.receiver)
+# Circle plot
+netVisual_individual(cellchat_CA, signaling = pathways.show, pairLR.use = LR.show, layout = "circle")
+
+
+plotGeneExpression(cellchat_CA, signaling = "FGF")
+
+```
+
+
+
+```{r}
+# in this chunk, I'm going to try out my higher level analysis of caFGF cellchat object 
+
+
+#identify signaling groups based on similarity 
+cellchat_CA <- computeNetSimilarity(cellchat_CA, type = "functional")
+cellchat_CA <- netEmbedding(cellchat_CA, type = "functional")
+cellchat_CA <- netClustering(cellchat_CA, type = "functional", do.parallel = FALSE)
+# Visualization in 2D-space
+netVisual_embedding(cellchat_CA, type = "functional", label.size = 3.5)
+netVisual_embeddingZoomIn(cellchat_CA, type = "functional", nCol = 2)
+
+
+
+#grouping together by structural similarity 
+cellchat_CA <- computeNetSimilarity(cellchat_CA, type = "structural")
+cellchat_CA <- netEmbedding(cellchat_CA, type = "structural")
+cellchat_CA <- netClustering(cellchat_CA, type = "structural", do.parallel = FALSE)
+# Visualization in 2D-space
+netVisual_embedding(cellchat_CA, type = "structural", label.size = 3.5)
+netVisual_embeddingZoomIn(cellchat_CA, type = "structural", nCol = 2)
+
+
+
+
+# pattern identification 
+library(NMF)
+library(ggalluvial)
+
+selectK(cellchat_CA, pattern = "outgoing")
+nPatterns = 3
+cellchat_CA <- identifyCommunicationPatterns(cellchat_CA, pattern = "outgoing", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_CA, pattern = "outgoing")
+# dot plot
+netAnalysis_dot(cellchat_CA, pattern = "outgoing")
+
+
+selectK(cellchat_CA, pattern = "incoming")
+nPatterns = 4
+cellchat_CA <- identifyCommunicationPatterns(cellchat_CA, pattern = "incoming", k = nPatterns)
+# river plot
+netAnalysis_river(cellchat_CA, pattern = "incoming")
+# dot plot
+netAnalysis_dot(cellchat_CA, pattern = "incoming")
+
+
+```
+
+
+```{r}
+pathways.show = c("LAMININ")
+plotGeneExpression (cellchat_WT, signaling = pathways.show)
+plotGeneExpression (cellchat_CA, signaling = pathways.show)
+
+
+StackedVlnPlot(object = WT_seurat, features = c('Ccl2', 'Ccl7', 'Cdkn1a', 'Hmgb1', 'Il6', 'Cdkn2a', 'Lamb1', 'Spp1', 'Cxcl1', 'Col6a2', 'Nfkb1', 'Gadd45a', 'Rrad'))
+StackedVlnPlot(object = caFGF_seurat, features = c('Ccl2', 'Ccl7', 'Cdkn1a', 'Hmgb1', 'Il6', 'Cdkn2a', 'Lamb1', 'Spp1', 'Cxcl1', 'Col6a2', 'Nfkb1', 'Gadd45a', 'Rrad'))
+
+```
+
+```{r}
+levels(cellchat_CA@meta$celltype.seurat) <- c("Myonuclei", "Endothelial", "SmoothMuscle", "Non_Rec_MuSCs", "Immune", "Schwann", "MuSCs_caFGF", "FAPs", "MyoFAPS?", "Unidentified_1")
+
+levels(cellchat_WT@meta$celltype.seurat) <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "MuSCs_WT", "FGF_MuSCs", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+levels(cellchat_CA@idents) <-c("Myonuclei", "Endothelial", "SmoothMuscle", "Non_Rec_MuSCs", "Immune", "Schwann", "MuSCs_caFGF", "FAPs", "MyoFAPS?", "Unidentified_1")
+
+levels(cellchat_WT@idents) <- c("Myonuclei", "Endothelial", "Schwann", "SmoothMuscle", "MuSCs_WT", "FGF_MuSCs", "FAPs", "Immune", "MyoFAPS?", "Unidentified_1")
+
+
+```
+
